@@ -1,0 +1,9 @@
+[package]
+name = "uitest"
+version = "0.1.0"
+authors = ["Peter Atashian <retep998@gmail.com>"]
+
+[dependencies.winapi]
+git = "https://github.com/retep998/winapi-rs"
+branch = "dev"
+features = ["winuser"]
