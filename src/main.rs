@@ -1,20 +1,99 @@
 #![feature(windows_subsystem)]
 #![windows_subsystem = "windows"]
 extern crate winapi;
-use std::ffi::OsStr;
+mod wide;
 use std::io::Error;
-use std::iter::once;
-use std::os::windows::ffi::OsStrExt;
+use std::mem::{size_of_val, zeroed};
 use std::ptr::null_mut;
-use winapi::um::winuser::{MB_OK, MessageBoxW};
-
-fn main() {
-    let msg = "Hello, world!";
-    let wide: Vec<u16> = OsStr::new(msg).encode_wide().chain(once(0)).collect();
-    let ret = unsafe {
-        MessageBoxW(null_mut(), wide.as_ptr(), wide.as_ptr(), MB_OK)
-    };
-    if ret == 0 {
-        println!("Failed: {:?}", Error::last_os_error());
+use wide::ToWide;
+use winapi::shared::minwindef::{DWORD, LPARAM, LRESULT, UINT, WPARAM};
+use winapi::shared::windef::{HWND};
+use winapi::shared::winerror::ERROR_INVALID_WINDOW_HANDLE;
+use winapi::um::errhandlingapi::{FatalAppExitW, GetLastError};
+use winapi::um::libloaderapi::GetModuleHandleW;
+use winapi::um::wingdi::CreateSolidBrush;
+use winapi::um::winuser::*;
+use winapi::um::winuser::{MB_ICONINFORMATION, MB_OK, MessageBoxW};
+use winapi::um::winnt::{LPCWSTR};
+unsafe extern "system" fn wndproc(
+    hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM,
+) -> LRESULT {
+    match msg {
+        msg => {
+            //println!("Unknown message: 0x{:x}", msg);
+            DefWindowProcW(hwnd, msg, wparam, lparam)
+        },
     }
+}
+fn die(s: &str) -> ! {
+    unsafe { FatalAppExitW(0, s.to_wide_null().as_ptr()); }
+    unreachable!()
+}
+fn main() {
+    unsafe {
+        let mut wx: WNDCLASSEXW = zeroed();
+        wx.cbSize = size_of_val(&wx) as DWORD;
+        wx.lpfnWndProc = Some(wndproc);
+        let class_name = "LEPORIDAE".to_wide_null();
+        wx.lpszClassName = class_name.as_ptr();
+        let brush = CreateSolidBrush(0xFF7744);
+        if brush.is_null() {
+            let err = GetLastError();
+            die(&format!("Failed to create brush: {}", err));
+        }
+        wx.hbrBackground = brush;
+        let icon = LoadIconW(GetModuleHandleW(null_mut()), MAKEINTRESOURCEW(2));
+        if icon.is_null() {
+            let err = GetLastError();
+            die(&format!("Failed to create icon: {}", err));
+        }
+        wx.hIcon = icon;
+        let class = RegisterClassExW(&wx);
+        if class == 0 {
+            let err = GetLastError();
+            die(&format!("Failed to register class: {}", err));
+        }
+        let hwnd = CreateWindowExW(
+            WS_EX_OVERLAPPEDWINDOW, class as LPCWSTR,
+            "I'm a window!".to_wide_null().as_ptr(), WS_OVERLAPPEDWINDOW,
+            CW_USEDEFAULT, CW_USEDEFAULT,
+            400, 300,
+            null_mut(), null_mut(), null_mut(), null_mut(),
+        );
+        if hwnd.is_null() {
+            let err = GetLastError();
+            die(&format!("Failed to create window: {}", err));
+        }
+        ShowWindow(hwnd, SW_SHOWDEFAULT);
+        let mut msg: MSG = zeroed();
+        loop {
+            let ret = GetMessageW(&mut msg, hwnd, 0, 0);
+            if ret == 0 {
+                break;
+            } else if ret == -1 {
+                let err = GetLastError();
+                if err == ERROR_INVALID_WINDOW_HANDLE {
+                    break;
+                }
+                die(&format!("Failed to get message: {}", err));
+            }
+            //println!("message: {}", msg.message);
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+    }
+    message_box("Your computer has been invaded by rabbits.", "Rabbit Alert", MB_OK | MB_ICONINFORMATION).unwrap();
+}
+
+fn message_box(text: &str, caption: &str, flags: u32) -> Result<i32, Error> {
+    let ret = unsafe {
+        MessageBoxW(
+            null_mut(),
+            text.to_wide_null().as_ptr(),
+            caption.to_wide_null().as_ptr(),
+            flags,
+        )
+    };
+    if ret == 0 { Err(Error::last_os_error()) }
+    else { Ok(ret) }
 }
