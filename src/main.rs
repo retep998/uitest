@@ -11,6 +11,7 @@ use winapi::shared::windef::{HWND};
 use winapi::shared::winerror::ERROR_INVALID_WINDOW_HANDLE;
 use winapi::um::errhandlingapi::{FatalAppExitW, GetLastError};
 use winapi::um::libloaderapi::GetModuleHandleW;
+use winapi::um::shellapi::{NIF_ICON, NIF_SHOWTIP, NIF_TIP, NIM_ADD, NIM_DELETE, NOTIFYICONDATAW, NOTIFYICON_VERSION_4, Shell_NotifyIconW};
 use winapi::um::wingdi::CreateSolidBrush;
 use winapi::um::winuser::*;
 use winapi::um::winuser::{MB_ICONINFORMATION, MB_OK, MessageBoxW};
@@ -65,6 +66,20 @@ fn main() {
             die(&format!("Failed to create window: {}", err));
         }
         ShowWindow(hwnd, SW_SHOWDEFAULT);
+        let mut nid: NOTIFYICONDATAW = zeroed();
+        nid.cbSize = size_of_val(&nid) as DWORD;
+        nid.hWnd = hwnd;
+        nid.uID = 273;
+        nid.hIcon = icon;
+        nid.uFlags = NIF_ICON | NIF_SHOWTIP | NIF_TIP;
+        *nid.uVersion_mut() = NOTIFYICON_VERSION_4;
+        let tooltip = "I'm a notification icon!".to_wide_null();
+        nid.szTip[..tooltip.len()].copy_from_slice(&tooltip);
+
+        let err = Shell_NotifyIconW(NIM_ADD, &mut nid);
+        if err == 0 {
+            die(&format!("Failed to create notification icon"));
+        }
         let mut msg: MSG = zeroed();
         loop {
             let ret = GetMessageW(&mut msg, hwnd, 0, 0);
@@ -80,6 +95,10 @@ fn main() {
             //println!("message: {}", msg.message);
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
+        }
+        let err = Shell_NotifyIconW(NIM_DELETE, &mut nid);
+        if err == 0 {
+            die(&format!("Failed to destroy notification icon"));
         }
     }
     message_box("Your computer has been invaded by rabbits.", "Rabbit Alert", MB_OK | MB_ICONINFORMATION).unwrap();
