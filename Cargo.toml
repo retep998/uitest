@@ -6,7 +6,7 @@ authors = ["Peter Atashian <retep998@gmail.com>"]
 [dependencies.winapi]
 git = "https://github.com/retep998/winapi-rs"
 branch = "dev"
-features = ["errhandlingapi", "libloaderapi", "minwindef", "shellapi", "windef", "winerror", "wingdi", "winnt", "winuser"]
+features = ["errhandlingapi", "libloaderapi", "minwindef", "shellapi", "windef", "windowsx", "winerror", "wingdi", "winnt", "winuser"]
 
 [profile.release]
 debug = true
