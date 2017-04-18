@@ -6,7 +6,7 @@ use std::io::Error;
 use std::mem::{size_of_val, zeroed};
 use std::ptr::null_mut;
 use wide::ToWide;
-use winapi::shared::minwindef::{DWORD, HIWORD, LOWORD, LPARAM, LRESULT, UINT, WPARAM};
+use winapi::shared::minwindef::{ATOM, DWORD, HIWORD, LOWORD, LPARAM, LRESULT, UINT, WPARAM};
 use winapi::shared::windef::{HWND};
 use winapi::shared::windowsx::{GET_X_LPARAM, GET_Y_LPARAM};
 use winapi::shared::winerror::ERROR_INVALID_WINDOW_HANDLE;
@@ -91,30 +91,9 @@ fn die(s: &str) -> ! {
 }
 fn main() {
     unsafe {
-        let mut wx: WNDCLASSEXW = zeroed();
-        wx.cbSize = size_of_val(&wx) as DWORD;
-        wx.lpfnWndProc = Some(wndproc);
-        let class_name = "LEPORIDAE".to_wide_null();
-        wx.lpszClassName = class_name.as_ptr();
-        let brush = CreateSolidBrush(0xFF7744);
-        if brush.is_null() {
-            let err = GetLastError();
-            die(&format!("Failed to create brush: {}", err));
-        }
-        wx.hbrBackground = brush;
-        let icon = LoadIconW(GetModuleHandleW(null_mut()), MAKEINTRESOURCEW(2));
-        if icon.is_null() {
-            let err = GetLastError();
-            die(&format!("Failed to create icon: {}", err));
-        }
-        wx.hIcon = icon;
-        let class = RegisterClassExW(&wx);
-        if class == 0 {
-            let err = GetLastError();
-            die(&format!("Failed to register class: {}", err));
-        }
+        let atom = ClassBuilder::new().name("LEPORIDAE").background().icon().register();
         let hwnd = CreateWindowExW(
-            WS_EX_OVERLAPPEDWINDOW, class as LPCWSTR,
+            WS_EX_OVERLAPPEDWINDOW, atom.0 as LPCWSTR,
             "I'm a window!".to_wide_null().as_ptr(),
             WS_OVERLAPPEDWINDOW | WS_VISIBLE,
             CW_USEDEFAULT, CW_USEDEFAULT,
@@ -129,7 +108,7 @@ fn main() {
         nid.cbSize = size_of_val(&nid) as DWORD;
         nid.hWnd = hwnd;
         nid.uID = 273;
-        nid.hIcon = icon;
+        nid.hIcon = LoadIconW(GetModuleHandleW(null_mut()), MAKEINTRESOURCEW(2));
         nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_SHOWTIP | NIF_TIP;
         nid.uCallbackMessage = WM_APP_NOTIFICATION_ICON;
         *nid.uVersion_mut() = NOTIFYICON_VERSION_4;
@@ -166,6 +145,61 @@ fn main() {
         }
     }
     message_box("Your computer has been invaded by rabbits.", "Rabbit Alert", MB_OK | MB_ICONINFORMATION).unwrap();
+}
+
+struct MessageLoop;
+
+impl MessageLoop {
+}
+struct Window;
+struct WindowBuilder;
+struct Class(ATOM);
+struct ClassBuilder {
+    class: WNDCLASSEXW,
+    name: Vec<u16>,
+}
+impl ClassBuilder {
+    fn new() -> ClassBuilder {
+        let mut class: WNDCLASSEXW = unsafe { zeroed() };
+        class.cbSize = size_of_val(&class) as DWORD;
+        class.lpfnWndProc = Some(wndproc);
+        ClassBuilder {
+            class: class,
+            name: Vec::new(),
+        }
+    }
+    fn name(&mut self, name: &str) -> &mut ClassBuilder {
+        let name = name.to_wide_null();
+        self.class.lpszClassName = name.as_ptr();
+        self.name = name;
+        self
+    }
+    fn icon(&mut self) -> &mut ClassBuilder {
+        let icon = unsafe { LoadIconW(GetModuleHandleW(null_mut()), MAKEINTRESOURCEW(2)) };
+        if icon.is_null() {
+            let err = unsafe { GetLastError() };
+            die(&format!("Failed to create icon: {}", err));
+        }
+        self.class.hIcon = icon;
+        self
+    }
+    fn background(&mut self) -> &mut ClassBuilder {
+        let brush = unsafe { CreateSolidBrush(0xFF7744) };
+        if brush.is_null() {
+            let err = unsafe { GetLastError() };
+            die(&format!("Failed to create brush: {}", err));
+        }
+        self.class.hbrBackground = brush;
+        self
+    }
+    fn register(&self) -> Class {
+        let atom = unsafe { RegisterClassExW(&self.class) };
+        if atom == 0 {
+            let err = unsafe { GetLastError() };
+            die(&format!("Failed to register class: {}", err));
+        }
+        Class(atom)
+    }
 }
 
 fn message_box(text: &str, caption: &str, flags: u32) -> Result<i32, Error> {
