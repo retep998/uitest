@@ -2,14 +2,13 @@
 //#![windows_subsystem = "windows"]
 extern crate winapi;
 mod wide;
-use std::io::Error;
 use std::mem::{size_of_val, zeroed};
 use std::ptr::null_mut;
 use wide::ToWide;
 use winapi::shared::minwindef::{ATOM, DWORD, HIWORD, LOWORD, LPARAM, LRESULT, UINT, WPARAM};
-use winapi::shared::windef::{HWND};
+use winapi::shared::windef::{HBRUSH, HWND};
 use winapi::shared::windowsx::{GET_X_LPARAM, GET_Y_LPARAM};
-use winapi::shared::winerror::ERROR_INVALID_WINDOW_HANDLE;
+use winapi::shared::winerror::{ERROR_INVALID_WINDOW_HANDLE, FACILITY_WIN32};
 use winapi::um::errhandlingapi::{FatalAppExitW, GetLastError};
 use winapi::um::libloaderapi::GetModuleHandleW;
 use winapi::um::shellapi::{NIF_ICON, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_SETVERSION, NOTIFYICONDATAW, NOTIFYICON_VERSION_4, Shell_NotifyIconW};
@@ -91,7 +90,8 @@ fn die(s: &str) -> ! {
 }
 fn main() {
     unsafe {
-        let atom = ClassBuilder::new().name("LEPORIDAE").background().icon().register();
+        let atom = ClassBuilder::new().name("LEPORIDAE")
+            .background(Brush::solid_rgb(0x44, 0x77, 0xFF).unwrap()).icon().register();
         let hwnd = CreateWindowExW(
             WS_EX_OVERLAPPEDWINDOW, atom.0 as LPCWSTR,
             "I'm a window!".to_wide_null().as_ptr(),
@@ -147,8 +147,19 @@ fn main() {
     message_box("Your computer has been invaded by rabbits.", "Rabbit Alert", MB_OK | MB_ICONINFORMATION).unwrap();
 }
 
+#[derive(Clone, Copy, Debug)]
+struct HResult(i32);
+impl HResult {
+    fn from_win32(code: u32) -> HResult {
+        let code = code as i32;
+        if code < 0 { HResult(code) }
+        else { HResult((code & 0xFFFF) | (FACILITY_WIN32 << 16) | (0x80000000u32 as i32)) }
+    }
+    fn get_last_error() -> HResult {
+        HResult::from_win32(unsafe { GetLastError() })
+    }
+}
 struct MessageLoop;
-
 impl MessageLoop {
 }
 struct Window;
@@ -183,13 +194,8 @@ impl ClassBuilder {
         self.class.hIcon = icon;
         self
     }
-    fn background(&mut self) -> &mut ClassBuilder {
-        let brush = unsafe { CreateSolidBrush(0xFF7744) };
-        if brush.is_null() {
-            let err = unsafe { GetLastError() };
-            die(&format!("Failed to create brush: {}", err));
-        }
-        self.class.hbrBackground = brush;
+    fn background(&mut self, brush: Brush) -> &mut ClassBuilder {
+        self.class.hbrBackground = brush.0;
         self
     }
     fn register(&self) -> Class {
@@ -201,8 +207,19 @@ impl ClassBuilder {
         Class(atom)
     }
 }
+struct Brush(HBRUSH);
+impl Brush {
+    fn solid_rgb(r: u8, g: u8, b: u8) -> Result<Brush, HResult> {
+        let rgb = (r as u32) | ((g as u32) << 8) | ((b as u32) << 16);
+        let brush = unsafe { CreateSolidBrush(rgb) };
+        if brush.is_null() {
+            return Err(HResult::get_last_error());
+        }
+        Ok(Brush(brush))
+    }
+}
 
-fn message_box(text: &str, caption: &str, flags: u32) -> Result<i32, Error> {
+fn message_box(text: &str, caption: &str, flags: u32) -> Result<i32, HResult> {
     let ret = unsafe {
         MessageBoxW(
             null_mut(),
@@ -211,6 +228,6 @@ fn message_box(text: &str, caption: &str, flags: u32) -> Result<i32, Error> {
             flags,
         )
     };
-    if ret == 0 { Err(Error::last_os_error()) }
+    if ret == 0 { Err(HResult::get_last_error()) }
     else { Ok(ret) }
 }
