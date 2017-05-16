@@ -1,4 +1,3 @@
-#![feature(windows_subsystem)]
 #![windows_subsystem = "windows"]
 extern crate winapi;
 pub mod menu;
@@ -7,7 +6,7 @@ mod wide;
 use std::mem::{size_of_val, zeroed};
 use std::ptr::null_mut;
 use winapi::shared::minwindef::{ATOM, DWORD, HIWORD, LOWORD, LPARAM, LRESULT, UINT, WPARAM};
-use winapi::shared::windef::{HBRUSH, HMENU, HWND};
+use winapi::shared::windef::{HBRUSH, HWND};
 use winapi::shared::windowsx::{GET_X_LPARAM, GET_Y_LPARAM};
 use winapi::shared::winerror::{ERROR_INVALID_WINDOW_HANDLE, FACILITY_WIN32};
 use winapi::um::errhandlingapi::{FatalAppExitW, GetLastError};
@@ -18,7 +17,7 @@ use winapi::um::winuser::*;
 use winapi::um::winuser::{MB_ICONINFORMATION, MB_OK, MessageBoxW};
 use winapi::um::winnt::{LPCWSTR};
 
-use menu::{Menu, MenuCheck, MenuItem, MenuStatus};
+use menu::{PopupMenu, MenuAction, MenuCheck, MenuItem, MenuStatus};
 use wide::ToWide;
 
 const WM_APP_NOTIFICATION_ICON: u32 = WM_APP + 1;
@@ -34,15 +33,18 @@ unsafe extern "system" fn wndproc(
             let x = GET_X_LPARAM(wparam as LPARAM);
             let y = GET_Y_LPARAM(wparam as LPARAM);
             let event = LOWORD(lparam as DWORD);
-            let id = HIWORD(lparam as DWORD);
+            let _id = HIWORD(lparam as DWORD);
             match event as UINT {
                 WM_MOUSEMOVE => (),
                 WM_CONTEXTMENU => {
-                    let menu = Menu::new().unwrap();
-                    menu.append(MenuItem::String("Win"), 273, MenuStatus::Grayed, MenuCheck::Checked).unwrap();
-                    menu.append(MenuItem::String("Invade"), 1, MenuStatus::Enabled, MenuCheck::Unchecked).unwrap();
-                    menu.append(MenuItem::Separator, 0, MenuStatus::Enabled, MenuCheck::Unchecked).unwrap();
-                    menu.append(MenuItem::String("Exit"), 2, MenuStatus::Enabled, MenuCheck::Unchecked).unwrap();
+                    let mut menu = PopupMenu::new().unwrap();
+                    let mut child = PopupMenu::new().unwrap();
+                    child.append(MenuItem::String("Win"), MenuAction::Id(273), MenuStatus::Disabled, MenuCheck::Checked).unwrap();
+                    child.append(MenuItem::String("Lose"), MenuAction::Id(273), MenuStatus::Grayed, MenuCheck::Unchecked).unwrap();
+                    menu.append(MenuItem::String("Children!"), MenuAction::ChildMenu(child), MenuStatus::Enabled, MenuCheck::Unchecked).unwrap();
+                    menu.append(MenuItem::String("Invade"), MenuAction::Id(1), MenuStatus::Enabled, MenuCheck::Unchecked).unwrap();
+                    menu.append(MenuItem::Separator, MenuAction::Id(0), MenuStatus::Enabled, MenuCheck::Unchecked).unwrap();
+                    menu.append(MenuItem::String("Exit"), MenuAction::Id(2), MenuStatus::Enabled, MenuCheck::Unchecked).unwrap();
                     let code = menu.display(hwnd, x, y).unwrap();
                     match code {
                         0 => {},
@@ -154,7 +156,7 @@ impl Error {
     }
     fn die(&self, s: &str) -> ! {
         let msg = format!("{}: {}", s, self.0);
-        unsafe { FatalAppExitW(0, s.to_wide_null().as_ptr()); }
+        unsafe { FatalAppExitW(0, msg.to_wide_null().as_ptr()); }
         unreachable!()
     }
 }
