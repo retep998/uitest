@@ -1,10 +1,11 @@
 #![feature(windows_subsystem)]
 #![windows_subsystem = "windows"]
 extern crate winapi;
+pub mod menu;
 mod wide;
+
 use std::mem::{size_of_val, zeroed};
 use std::ptr::null_mut;
-use wide::ToWide;
 use winapi::shared::minwindef::{ATOM, DWORD, HIWORD, LOWORD, LPARAM, LRESULT, UINT, WPARAM};
 use winapi::shared::windef::{HBRUSH, HMENU, HWND};
 use winapi::shared::windowsx::{GET_X_LPARAM, GET_Y_LPARAM};
@@ -16,6 +17,9 @@ use winapi::um::wingdi::CreateSolidBrush;
 use winapi::um::winuser::*;
 use winapi::um::winuser::{MB_ICONINFORMATION, MB_OK, MessageBoxW};
 use winapi::um::winnt::{LPCWSTR};
+
+use menu::{Menu, MenuCheck, MenuItem, MenuStatus};
+use wide::ToWide;
 
 const WM_APP_NOTIFICATION_ICON: u32 = WM_APP + 1;
 
@@ -35,8 +39,10 @@ unsafe extern "system" fn wndproc(
                 WM_MOUSEMOVE => (),
                 WM_CONTEXTMENU => {
                     let menu = Menu::new().unwrap();
-                    menu.append_string("Invade", 1).unwrap();
-                    menu.append_string("Exit", 2).unwrap();
+                    menu.append(MenuItem::String("Win"), 273, MenuStatus::Grayed, MenuCheck::Checked).unwrap();
+                    menu.append(MenuItem::String("Invade"), 1, MenuStatus::Enabled, MenuCheck::Unchecked).unwrap();
+                    menu.append(MenuItem::Separator, 0, MenuStatus::Enabled, MenuCheck::Unchecked).unwrap();
+                    menu.append(MenuItem::String("Exit"), 2, MenuStatus::Enabled, MenuCheck::Unchecked).unwrap();
                     let code = menu.display(hwnd, x, y).unwrap();
                     match code {
                         0 => {},
@@ -130,15 +136,26 @@ fn main() {
 }
 
 #[derive(Clone, Copy, Debug)]
-struct HResult(i32);
-impl HResult {
-    fn from_win32(code: u32) -> HResult {
-        let code = code as i32;
-        if code < 0 { HResult(code) }
-        else { HResult((code & 0xFFFF) | (FACILITY_WIN32 << 16) | (0x80000000u32 as i32)) }
+pub struct Error(u32);
+impl Error {
+    fn from_raw(code: u32) -> Error {
+        Error(code)
     }
-    fn get_last_error() -> HResult {
-        HResult::from_win32(unsafe { GetLastError() })
+    fn as_raw(&self) -> u32 {
+        self.0
+    }
+    fn get_last_error() -> Error {
+        Error::from_raw(unsafe { GetLastError() })
+    }
+    fn into_hresult(&self) -> i32 {
+        let code = self.0 as i32;
+        if code < 0 { code }
+        else { (code & 0xFFFF) | (FACILITY_WIN32 << 16) | (0x80000000u32 as i32) }
+    }
+    fn die(&self, s: &str) -> ! {
+        let msg = format!("{}: {}", s, self.0);
+        unsafe { FatalAppExitW(0, s.to_wide_null().as_ptr()); }
+        unreachable!()
     }
 }
 struct MessageLoop {
@@ -191,64 +208,19 @@ impl ClassBuilder {
         Class(atom)
     }
 }
-struct Menu(HMENU);
-impl Menu {
-    fn new() -> Result<Menu, HResult> {
-        unsafe {
-            let menu = CreatePopupMenu();
-            if menu.is_null() {
-                return Err(HResult::get_last_error());
-            }
-            Ok(Menu(menu))
-        }
-    }
-    fn append_string(&self, string: &str, code: u16) -> Result<(), HResult> {
-        unsafe {
-            let ret = AppendMenuW(self.0, MF_STRING, code as usize, string.to_wide_null().as_ptr());
-            if ret == 0 {
-                return Err(HResult::get_last_error());
-            }
-            Ok(())
-        }
-    }
-    fn display(&self, hwnd: HWND, x: i32, y: i32) -> Result<u16, HResult> {
-        unsafe {
-            let ret = SetForegroundWindow(hwnd);
-            if ret == 0 {
-                return Err(HResult::get_last_error());
-            }
-            let ret = TrackPopupMenuEx(self.0, TPM_RETURNCMD, x, y, hwnd, null_mut());
-            if ret == 0 && GetLastError() != 0 {
-                return Err(HResult::get_last_error());
-            }
-            Ok(ret as u16)
-        }
-    }
-}
-impl Drop for Menu {
-    fn drop(&mut self) {
-        unsafe {
-            let ret = DestroyMenu(self.0);
-            if ret == 0 {
-                let err = GetLastError();
-                die(&format!("Failed to destroy menu: {}", err));
-            }
-        }
-    }
-}
 struct Brush(HBRUSH);
 impl Brush {
-    fn solid_rgb(r: u8, g: u8, b: u8) -> Result<Brush, HResult> {
+    fn solid_rgb(r: u8, g: u8, b: u8) -> Result<Brush, Error> {
         let rgb = (r as u32) | ((g as u32) << 8) | ((b as u32) << 16);
         let brush = unsafe { CreateSolidBrush(rgb) };
         if brush.is_null() {
-            return Err(HResult::get_last_error());
+            return Err(Error::get_last_error());
         }
         Ok(Brush(brush))
     }
 }
 
-fn message_box(text: &str, caption: &str, flags: u32) -> Result<i32, HResult> {
+fn message_box(text: &str, caption: &str, flags: u32) -> Result<i32, Error> {
     let ret = unsafe {
         MessageBoxW(
             null_mut(),
@@ -257,6 +229,6 @@ fn message_box(text: &str, caption: &str, flags: u32) -> Result<i32, HResult> {
             flags,
         )
     };
-    if ret == 0 { Err(HResult::get_last_error()) }
+    if ret == 0 { Err(Error::get_last_error()) }
     else { Ok(ret) }
 }
