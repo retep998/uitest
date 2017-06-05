@@ -8,7 +8,7 @@ dependencies = [
 [[package]]
 name = "winapi"
 version = "0.3.0-alpha.0"
-source = "git+https://github.com/retep998/winapi-rs?branch=dev#29adb03b00cedb2769c258a1970ccf315e9f3768"
+source = "git+https://github.com/retep998/winapi-rs?branch=dev#d920335df99ea5b09c1f0ea451b47e66fc3d37e9"
 dependencies = [
  "winapi-i686-pc-windows-gnu 0.3.1 (git+https://github.com/retep998/winapi-rs?branch=dev)",
  "winapi-x86_64-pc-windows-gnu 0.3.1 (git+https://github.com/retep998/winapi-rs?branch=dev)",
@@ -17,12 +17,12 @@ dependencies = [
 [[package]]
 name = "winapi-i686-pc-windows-gnu"
 version = "0.3.1"
-source = "git+https://github.com/retep998/winapi-rs?branch=dev#29adb03b00cedb2769c258a1970ccf315e9f3768"
+source = "git+https://github.com/retep998/winapi-rs?branch=dev#d920335df99ea5b09c1f0ea451b47e66fc3d37e9"
 
 [[package]]
 name = "winapi-x86_64-pc-windows-gnu"
 version = "0.3.1"
-source = "git+https://github.com/retep998/winapi-rs?branch=dev#29adb03b00cedb2769c258a1970ccf315e9f3768"
+source = "git+https://github.com/retep998/winapi-rs?branch=dev#d920335df99ea5b09c1f0ea451b47e66fc3d37e9"
 
 [metadata]
 "checksum winapi 0.3.0-alpha.0 (git+https://github.com/retep998/winapi-rs?branch=dev)" = "<none>"

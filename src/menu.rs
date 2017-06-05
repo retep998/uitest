@@ -1,3 +1,4 @@
+
 use std::mem::forget;
 use std::ops::{Deref, DerefMut};
 use std::ptr::{null, null_mut};
@@ -8,11 +9,6 @@ use winapi::um::winuser::*;
 use Error;
 use wide::ToWide;
 
-
-pub enum MenuItem<'a> {
-    String(&'a str),
-    Separator,
-}
 pub enum MenuStatus {
     Enabled,
     Disabled,
@@ -30,21 +26,21 @@ pub struct Menu {
     handle: HMENU,
 }
 impl Menu {
-    unsafe fn from_raw(handle: HMENU) -> Menu {
+    pub unsafe fn from_raw(handle: HMENU) -> Menu {
         Menu {
             handle: handle,
         }
     }
-    fn as_raw(&self) -> HMENU {
+    pub fn as_raw(&self) -> HMENU {
         self.handle
     }
-    fn into_raw(self) -> HMENU {
+    pub fn into_raw(self) -> HMENU {
         let handle = self.handle;
         forget(self);
         handle
     }
-    pub fn append<'a>(
-        &mut self, item: MenuItem<'a>, action: MenuAction, status: MenuStatus, check: MenuCheck,
+    pub fn append_string<'a>(
+        &self, string: &str, action: MenuAction, status: MenuStatus, check: MenuCheck,
     ) -> Result<(), Error> {
         let mut flags = 0;
         let action = match action {
@@ -63,14 +59,17 @@ impl Menu {
             MenuCheck::Checked => flags |= MF_CHECKED,
             MenuCheck::Unchecked => flags |= MF_UNCHECKED,
         }
-        if unsafe { match item {
-            MenuItem::String(string) => AppendMenuW(
-                self.handle, flags | MF_STRING, action, string.to_wide_null().as_ptr(),
-            ),
-            MenuItem::Separator => AppendMenuW(
-                self.handle, flags | MF_SEPARATOR, action, null(),
-            ),
-        }} == 0 {
+        if unsafe { AppendMenuW(
+            self.handle, flags | MF_STRING, action, string.to_wide_null().as_ptr(),
+        )} == 0 {
+            return Err(Error::get_last_error());
+        }
+        Ok(())
+    }
+    pub fn append_separator(&self)-> Result<(), Error> {
+        if unsafe { AppendMenuW(
+            self.handle, MF_SEPARATOR, 0, null(),
+        )} == 0 {
             return Err(Error::get_last_error());
         }
         Ok(())
@@ -78,7 +77,6 @@ impl Menu {
 }
 impl Drop for Menu {
     fn drop(&mut self) {
-        println!("Dropping!");
         if unsafe { DestroyMenu(self.handle) } == 0 {
             Error::get_last_error().die("Failed to destroy menu");
         }

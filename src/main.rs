@@ -1,5 +1,7 @@
 #![windows_subsystem = "windows"]
 extern crate winapi;
+pub mod brush;
+pub mod class;
 pub mod menu;
 mod wide;
 
@@ -12,12 +14,13 @@ use winapi::shared::winerror::{ERROR_INVALID_WINDOW_HANDLE, FACILITY_WIN32};
 use winapi::um::errhandlingapi::{FatalAppExitW, GetLastError};
 use winapi::um::libloaderapi::GetModuleHandleW;
 use winapi::um::shellapi::{NIF_ICON, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_SETVERSION, NOTIFYICONDATAW, NOTIFYICON_VERSION_4, Shell_NotifyIconW};
-use winapi::um::wingdi::CreateSolidBrush;
 use winapi::um::winuser::*;
 use winapi::um::winuser::{MB_ICONINFORMATION, MB_OK, MessageBoxW};
 use winapi::um::winnt::{LPCWSTR};
 
-use menu::{PopupMenu, MenuAction, MenuCheck, MenuItem, MenuStatus};
+use brush::Brush;
+use class::ClassBuilder;
+use menu::{PopupMenu, MenuAction, MenuCheck, MenuStatus};
 use wide::ToWide;
 
 const WM_APP_NOTIFICATION_ICON: u32 = WM_APP + 1;
@@ -37,21 +40,23 @@ unsafe extern "system" fn wndproc(
             match event as UINT {
                 WM_MOUSEMOVE => (),
                 WM_CONTEXTMENU => {
-                    let mut menu = PopupMenu::new().unwrap();
-                    let mut child = PopupMenu::new().unwrap();
-                    child.append(MenuItem::String("Win"), MenuAction::Id(273), MenuStatus::Disabled, MenuCheck::Checked).unwrap();
-                    child.append(MenuItem::String("Lose"), MenuAction::Id(273), MenuStatus::Grayed, MenuCheck::Unchecked).unwrap();
-                    menu.append(MenuItem::String("Children!"), MenuAction::ChildMenu(child), MenuStatus::Enabled, MenuCheck::Unchecked).unwrap();
-                    menu.append(MenuItem::String("Invade"), MenuAction::Id(1), MenuStatus::Enabled, MenuCheck::Unchecked).unwrap();
-                    menu.append(MenuItem::Separator, MenuAction::Id(0), MenuStatus::Enabled, MenuCheck::Unchecked).unwrap();
-                    menu.append(MenuItem::String("Exit"), MenuAction::Id(2), MenuStatus::Enabled, MenuCheck::Unchecked).unwrap();
+                    let menu = PopupMenu::new().unwrap();
+                    let child = PopupMenu::new().unwrap();
+                    menu.append_string("IP 192.168.1.1", MenuAction::Id(0), MenuStatus::Disabled, MenuCheck::Unchecked).unwrap();
+                    child.append_string("Slow Response", MenuAction::Id(3), MenuStatus::Enabled, MenuCheck::Unchecked).unwrap();
+                    child.append_string("Application Error", MenuAction::Id(4), MenuStatus::Enabled, MenuCheck::Unchecked).unwrap();
+                    child.append_string("Bad Experience", MenuAction::Id(5), MenuStatus::Enabled, MenuCheck::Unchecked).unwrap();
+                    menu.append_string("Report", MenuAction::ChildMenu(child), MenuStatus::Enabled, MenuCheck::Unchecked).unwrap();
+                    menu.append_string("Login", MenuAction::Id(1), MenuStatus::Enabled, MenuCheck::Unchecked).unwrap();
+                    menu.append_separator().unwrap();
+                    menu.append_string("Exit", MenuAction::Id(2), MenuStatus::Enabled, MenuCheck::Unchecked).unwrap();
                     let code = menu.display(hwnd, x, y).unwrap();
                     match code {
                         0 => {},
                         1 => {
                             message_box(
-                                "Your computer has been invaded by rabbits.",
-                                "Rabbit Alert", MB_OK | MB_ICONINFORMATION,
+                                "Login system is unimplemented.",
+                                "Login", MB_OK | MB_ICONWARNING,
                             ).unwrap();
                         },
                         2 => {
@@ -60,6 +65,12 @@ unsafe extern "system" fn wndproc(
                                 let err = GetLastError();
                                 die(&format!("Failed to destroy window: {}", err));
                             }
+                        },
+                        3 | 4 | 5 => {
+                            message_box(
+                                "Your complaint has been noted.",
+                                "Network complaint", MB_OK | MB_ICONINFORMATION,
+                            ).unwrap();
                         },
                         _ => unreachable!(),
                     }
@@ -78,10 +89,11 @@ fn die(s: &str) -> ! {
 }
 fn main() {
     unsafe {
+        let brush = Brush::solid_rgb(0x44, 0x77, 0xFF).unwrap();
         let atom = ClassBuilder::new().name("LEPORIDAE")
-            .background(Brush::solid_rgb(0x44, 0x77, 0xFF).unwrap()).icon().register();
+            .background(brush).icon().register().unwrap();
         let hwnd = CreateWindowExW(
-            WS_EX_OVERLAPPEDWINDOW, atom.0 as LPCWSTR,
+            WS_EX_OVERLAPPEDWINDOW, atom.as_raw() as LPCWSTR,
             "I'm a window!".to_wide_null().as_ptr(),
             WS_OVERLAPPEDWINDOW | WS_VISIBLE,
             CW_USEDEFAULT, CW_USEDEFAULT,
@@ -167,60 +179,6 @@ impl MessageLoop {
 }
 struct Window;
 struct WindowBuilder;
-struct Class(ATOM);
-struct ClassBuilder {
-    class: WNDCLASSEXW,
-    name: Vec<u16>,
-}
-impl ClassBuilder {
-    fn new() -> ClassBuilder {
-        let mut class: WNDCLASSEXW = unsafe { zeroed() };
-        class.cbSize = size_of_val(&class) as DWORD;
-        class.lpfnWndProc = Some(wndproc);
-        ClassBuilder {
-            class: class,
-            name: Vec::new(),
-        }
-    }
-    fn name(&mut self, name: &str) -> &mut ClassBuilder {
-        let name = name.to_wide_null();
-        self.class.lpszClassName = name.as_ptr();
-        self.name = name;
-        self
-    }
-    fn icon(&mut self) -> &mut ClassBuilder {
-        let icon = unsafe { LoadIconW(GetModuleHandleW(null_mut()), MAKEINTRESOURCEW(2)) };
-        if icon.is_null() {
-            let err = unsafe { GetLastError() };
-            die(&format!("Failed to create icon: {}", err));
-        }
-        self.class.hIcon = icon;
-        self
-    }
-    fn background(&mut self, brush: Brush) -> &mut ClassBuilder {
-        self.class.hbrBackground = brush.0;
-        self
-    }
-    fn register(&self) -> Class {
-        let atom = unsafe { RegisterClassExW(&self.class) };
-        if atom == 0 {
-            let err = unsafe { GetLastError() };
-            die(&format!("Failed to register class: {}", err));
-        }
-        Class(atom)
-    }
-}
-struct Brush(HBRUSH);
-impl Brush {
-    fn solid_rgb(r: u8, g: u8, b: u8) -> Result<Brush, Error> {
-        let rgb = (r as u32) | ((g as u32) << 8) | ((b as u32) << 16);
-        let brush = unsafe { CreateSolidBrush(rgb) };
-        if brush.is_null() {
-            return Err(Error::get_last_error());
-        }
-        Ok(Brush(brush))
-    }
-}
 
 fn message_box(text: &str, caption: &str, flags: u32) -> Result<i32, Error> {
     let ret = unsafe {
