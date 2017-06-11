@@ -1,9 +1,9 @@
 
 use std::mem::{forget, size_of_val, zeroed};
 use std::ptr::null_mut;
+use std::sync::Arc;
 use winapi::shared::minwindef::{ATOM, DWORD};
 use winapi::shared::windef::HICON;
-use winapi::um::errhandlingapi::GetLastError;
 use winapi::um::libloaderapi::GetModuleHandleW;
 use winapi::um::winnt::LPCWSTR;
 use winapi::um::winuser::{LoadIconW, MAKEINTRESOURCEW, RegisterClassExW, WNDCLASSEXW, UnregisterClassW};
@@ -11,16 +11,18 @@ use winapi::um::winuser::{LoadIconW, MAKEINTRESOURCEW, RegisterClassExW, WNDCLAS
 use Error;
 use brush::Brush;
 use wide::ToWide;
+use wndproc::wndproc;
 
-pub struct Class(ATOM);
+#[derive(Clone)]
+pub struct Class(Arc<ATOM>);
 impl Class {
     pub fn as_raw(&self) -> ATOM {
-        self.0
+        *self.0
     }
 }
 impl Drop for Class {
     fn drop(&mut self) {
-        if unsafe { UnregisterClassW(self.0 as LPCWSTR, null_mut()) } == 0 {
+        if unsafe { UnregisterClassW(self.as_raw() as LPCWSTR, null_mut()) } == 0 {
             Error::get_last_error().die("Failed to unregister class");
         }
     }
@@ -32,7 +34,6 @@ pub struct ClassBuilder {
 }
 impl ClassBuilder {
     pub fn new() -> ClassBuilder {
-        let mut class: WNDCLASSEXW = unsafe { zeroed() };
         ClassBuilder {
             name: None,
             brush: None,
@@ -60,7 +61,7 @@ impl ClassBuilder {
     pub fn register(self) -> Result<Class, Error> {
         let mut class: WNDCLASSEXW = unsafe { zeroed() };
         class.cbSize = size_of_val(&class) as DWORD;
-        class.lpfnWndProc = Some(::wndproc);
+        class.lpfnWndProc = Some(wndproc);
         if let Some(ref name) = self.name {
             class.lpszClassName = name.as_ptr();
         }
@@ -72,6 +73,6 @@ impl ClassBuilder {
             return Err(Error::get_last_error());
         }
         forget(self.brush);
-        Ok(Class(atom))
+        Ok(Class(Arc::new(atom)))
     }
 }
