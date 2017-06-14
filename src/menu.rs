@@ -3,7 +3,6 @@ use std::mem::forget;
 use std::ops::{Deref, DerefMut};
 use std::ptr::{null, null_mut};
 use winapi::shared::windef::{HMENU, HWND};
-use winapi::um::errhandlingapi::GetLastError;
 use winapi::um::winuser::*;
 
 use Error;
@@ -91,17 +90,15 @@ impl PopupMenu {
         }
         Ok(PopupMenu(unsafe { Menu::from_raw(menu) }))
     }
-    pub fn display(&self, hwnd: HWND, x: i32, y: i32) -> Result<u16, Error> {
+    pub fn display(&self, hwnd: HWND, x: i32, y: i32) -> Result<(), Error> {
         unsafe {
-            let ret = SetForegroundWindow(hwnd);
-            if ret == 0 {
+            if SetForegroundWindow(hwnd) == 0 {
                 return Err(Error::get_last_error());
             }
-            let ret = TrackPopupMenuEx(self.handle, TPM_RETURNCMD, x, y, hwnd, null_mut());
-            if ret == 0 && GetLastError() != 0 {
+            if TrackPopupMenuEx(self.handle, 0, x, y, hwnd, null_mut()) == 0 {
                 return Err(Error::get_last_error());
             }
-            Ok(ret as u16)
+            Ok(())
         }
     }
     fn into_inner(self) -> Menu {

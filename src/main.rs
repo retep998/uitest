@@ -1,4 +1,4 @@
-#![windows_subsystem = "windows"]
+//#![windows_subsystem = "windows"]
 #![deny(unreachable_patterns)]
 extern crate winapi;
 pub mod brush;
@@ -6,6 +6,7 @@ pub mod class;
 pub mod event;
 mod wndproc;
 pub mod menu;
+pub mod notifyicon;
 mod wide;
 pub mod window;
 
@@ -14,7 +15,7 @@ use std::ptr::null_mut;
 use winapi::shared::minwindef::{DWORD, LRESULT};
 use winapi::shared::windef::HWND;
 use winapi::shared::winerror::{FACILITY_WIN32};
-use winapi::um::errhandlingapi::{FatalAppExitW, GetLastError};
+use winapi::um::errhandlingapi::{FatalAppExitW, GetLastError, SetLastError};
 use winapi::um::libloaderapi::GetModuleHandleW;
 use winapi::um::shellapi::{NIF_ICON, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_SETVERSION, NOTIFYICONDATAW, NOTIFYICON_VERSION_4, Shell_NotifyIconW};
 use winapi::um::winnt::{LPCWSTR};
@@ -44,7 +45,9 @@ fn handler(window: HWND, event: Event) -> Option<LRESULT> {
                 menu.append_string("Login", MenuAction::Id(1), MenuStatus::Enabled, MenuCheck::Unchecked).unwrap();
                 menu.append_separator().unwrap();
                 menu.append_string("Exit", MenuAction::Id(2), MenuStatus::Enabled, MenuCheck::Unchecked).unwrap();
-                let code = menu.display(window, x, y).unwrap();
+                menu.display(window, x, y).unwrap();
+                // TODO Get menu result as event
+                /*let code = menu.display(window, x, y).unwrap();
                 match code {
                     0 => {},
                     1 => {
@@ -65,7 +68,7 @@ fn handler(window: HWND, event: Event) -> Option<LRESULT> {
                         ).unwrap();
                     },
                     _ => unreachable!(),
-                }
+                }*/
             },
             _ => (),
         },
@@ -104,19 +107,19 @@ fn foo() {
         *nid.uVersion_mut() = NOTIFYICON_VERSION_4;
         let tooltip = "I'm a notification icon!".to_wide_null();
         nid.szTip[..tooltip.len()].copy_from_slice(&tooltip);
-
+        SetLastError(0);
         let err = Shell_NotifyIconW(NIM_ADD, &mut nid);
         if err == 0 {
-            die(&format!("Failed to create notification icon"));
+            Error::get_last_error().die("Failed to create notification icon");
         }
         let err = Shell_NotifyIconW(NIM_SETVERSION, &mut nid);
         if err == 0 {
-            die(&format!("Failed to set version for notification icon"));
+            Error::get_last_error().die("Failed to set version for notification icon");
         }
         wndproc::message_loop();
         let err = Shell_NotifyIconW(NIM_DELETE, &mut nid);
         if err == 0 {
-            die(&format!("Failed to destroy notification icon"));
+            Error::get_last_error().die("Failed to destroy notification icon");
         }
     }
 }

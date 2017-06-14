@@ -68,6 +68,9 @@ impl ClassBuilder {
         if let Some(ref brush) = self.brush {
             class.hbrBackground = brush.as_raw();
         }
+        if let Some(icon) = self.icon {
+            class.hIcon = icon;
+        }
         let atom = unsafe { RegisterClassExW(&class) };
         if atom == 0 {
             return Err(Error::get_last_error());

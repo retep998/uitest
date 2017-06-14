@@ -1,6 +1,8 @@
 use std::ptr::null_mut;
-use std::sync::Arc;
+use std::rc::Rc;
+use std::sync::{Arc, Condvar, Mutex};
 use std::sync::atomic::{AtomicPtr, Ordering};
+use std::thread::spawn;
 use winapi::shared::minwindef::{LPARAM, UINT, WPARAM};
 use winapi::shared::windef::{HWND, HWND__};
 use winapi::shared::winerror::ERROR_INVALID_WINDOW_HANDLE;
@@ -31,20 +33,24 @@ impl RemoteWindow {
         Ok(())
     }
 }
-pub struct Window {
+struct WindowInternal {
     hwnd: Arc<AtomicPtr<HWND__>>,
-    #[allow(dead_code)] class: Option<Class>,
+    _class: Option<Class>,
 }
+impl Drop for WindowInternal {
+    fn drop(&mut self) {
+        self.hwnd.store(null_mut(), Ordering::SeqCst);
+    }
+}
+pub struct Window(Rc<WindowInternal>);
 impl Window {
     pub fn remote(&self) -> RemoteWindow {
         RemoteWindow {
-            hwnd: self.hwnd.clone(),
+            hwnd: self.0.hwnd.clone(),
         }
     }
-}
-impl Drop for Window {
-    fn drop(&mut self) {
-        self.hwnd.store(null_mut(), Ordering::SeqCst);
+    pub(crate) unsafe fn from_raw(hwnd: HWND) -> Window {
+        unimplemented!()
     }
 }
 pub struct WindowBuilder {
@@ -58,25 +64,36 @@ impl WindowBuilder {
         self.class = Some(class);
         self
     }
-    pub fn create_child(self, _window: RemoteWindow) -> Result<Window, Error> {
+    pub fn create_child(self, _window: RemoteWindow) -> Result<RemoteWindow, Error> {
         unimplemented!()
     }
-    pub fn create_message(self) -> Result<Window, Error> {
-        let atom = self.class.as_ref().map(|x| x.as_raw()).unwrap_or(0);
-        let hwnd = unsafe { CreateWindowExW(
-            0, atom as LPCWSTR,
-            "I'm a window!".to_wide_null().as_ptr(),
-            0,
-            CW_USEDEFAULT, CW_USEDEFAULT,
-            0, 0,
-            null_mut(), null_mut(), null_mut(), null_mut(),
-        )};
-        if hwnd.is_null() {
-            return Err(Error::get_last_error())
+    pub fn create_message(self) -> Result<RemoteWindow, Error> {
+        let pair: Arc<(Mutex<Option<Result<RemoteWindow, Error>>>, Condvar)> = Arc::new((Mutex::new(None), Condvar::new()));
+        let rpair = pair.clone();
+        spawn(move|| {
+            let atom = self.class.as_ref().map(|x| x.as_raw()).unwrap_or(0);
+            let hwnd = unsafe { CreateWindowExW(
+                0, atom as LPCWSTR,
+                "I'm a window!".to_wide_null().as_ptr(),
+                0,
+                CW_USEDEFAULT, CW_USEDEFAULT,
+                0, 0,
+                null_mut(), null_mut(), null_mut(), null_mut(),
+            )};
+            if hwnd.is_null() {
+                let err = Error::get_last_error();
+                *rpair.0.lock().unwrap() = Some(Err(err));
+                rpair.1.notify_one();
+            }
+            let window = WindowInternal {
+                hwnd: Arc::new(AtomicPtr::new(hwnd)),
+                _class: self.class,
+            };
+        });
+        let mut result = pair.0.lock().unwrap();
+        while result.is_none() {
+            result = pair.1.wait(result).unwrap();
         }
-        Ok(Window {
-            hwnd: Arc::new(AtomicPtr::new(hwnd)),
-            class: self.class,
-        })
+        unimplemented!()
     }
 }
