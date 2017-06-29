@@ -10,26 +10,23 @@ pub mod notifyicon;
 mod wide;
 pub mod window;
 
-use std::mem::{size_of_val, zeroed};
 use std::ptr::null_mut;
-use winapi::shared::minwindef::{DWORD, LRESULT};
-use winapi::shared::windef::HWND;
+use std::thread::sleep;
+use std::time::Duration;
 use winapi::shared::winerror::{FACILITY_WIN32};
 use winapi::um::errhandlingapi::{FatalAppExitW, GetLastError, SetLastError};
 use winapi::um::libloaderapi::GetModuleHandleW;
-use winapi::um::shellapi::{NIF_ICON, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_SETVERSION, NOTIFYICONDATAW, NOTIFYICON_VERSION_4, Shell_NotifyIconW};
-use winapi::um::winnt::{LPCWSTR};
-use winapi::um::winuser::*;
-use winapi::um::winuser::{MB_ICONINFORMATION, MB_OK, MessageBoxW};
+use winapi::um::shellapi::{NIF_SHOWTIP, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_SETVERSION, NOTIFYICONDATAW, NOTIFYICON_VERSION_4, Shell_NotifyIconW};
+use winapi::um::winuser::{LoadIconW, MAKEINTRESOURCEW, MB_ICONINFORMATION, MB_OK, MessageBoxW};
 
 use brush::Brush;
 use class::ClassBuilder;
-use event::{Event, NotifyIconEvent};
+use event::{NotifyIconEvent};
 use menu::{PopupMenu, MenuAction, MenuCheck, MenuStatus};
 use wide::ToWide;
+use window::WindowBuilder;
 
-const WM_APP_NOTIFICATION_ICON: u32 = WM_APP + 1;
-
+/*
 fn handler(window: HWND, event: Event) -> Option<LRESULT> {
     match event {
         Event::Destroy => unsafe { PostQuitMessage(0) },
@@ -76,52 +73,48 @@ fn handler(window: HWND, event: Event) -> Option<LRESULT> {
     }
     None
 }
-fn die(s: &str) -> ! {
-    unsafe { FatalAppExitW(0, s.to_wide_null().as_ptr()); }
-    unreachable!()
-}
+*/
 fn foo() {
-    unsafe {
-        let brush = Brush::solid_rgb(0x44, 0x77, 0xFF).unwrap();
-        let atom = ClassBuilder::new().name("LEPORIDAE")
-            .background(brush).icon().register().unwrap();
-        let hwnd = CreateWindowExW(
-            WS_EX_OVERLAPPEDWINDOW, atom.as_raw() as LPCWSTR,
-            "I'm a window!".to_wide_null().as_ptr(),
-            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-            CW_USEDEFAULT, CW_USEDEFAULT,
-            400, 300,
-            null_mut(), null_mut(), null_mut(), null_mut(),
-        );
-        if hwnd.is_null() {
-            let err = GetLastError();
-            die(&format!("Failed to create window: {}", err));
-        }
-        let mut nid: NOTIFYICONDATAW = zeroed();
-        nid.cbSize = size_of_val(&nid) as DWORD;
-        nid.hWnd = hwnd;
-        nid.uID = 273;
-        nid.hIcon = LoadIconW(GetModuleHandleW(null_mut()), MAKEINTRESOURCEW(2));
-        nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_SHOWTIP | NIF_TIP;
-        nid.uCallbackMessage = WM_APP_NOTIFICATION_ICON;
-        *nid.uVersion_mut() = NOTIFYICON_VERSION_4;
-        let tooltip = "I'm a notification icon!".to_wide_null();
-        nid.szTip[..tooltip.len()].copy_from_slice(&tooltip);
-        SetLastError(0);
-        let err = Shell_NotifyIconW(NIM_ADD, &mut nid);
-        if err == 0 {
-            Error::get_last_error().die("Failed to create notification icon");
-        }
-        let err = Shell_NotifyIconW(NIM_SETVERSION, &mut nid);
-        if err == 0 {
-            Error::get_last_error().die("Failed to set version for notification icon");
-        }
-        wndproc::message_loop();
-        let err = Shell_NotifyIconW(NIM_DELETE, &mut nid);
-        if err == 0 {
-            Error::get_last_error().die("Failed to destroy notification icon");
-        }
+    let brush = Brush::solid_rgb(0x44, 0x77, 0xFF).unwrap();
+    let icon = unsafe { LoadIconW(GetModuleHandleW(null_mut()), MAKEINTRESOURCEW(2)) };
+    if icon.is_null() {
+        Error::get_last_error().die("Failed to load icon");
     }
+    let class = ClassBuilder::new().background(brush).icon(icon).name("WNDBUN").register().expect("Failed to register class");
+    let wb = WindowBuilder::new().class(class).handler(|e| {
+        println!("{:?}", e);
+        None
+    });
+    let window = wb.create_message().unwrap();
+    loop {
+        sleep(Duration::from_secs(10));
+    }
+    /*
+    let mut nid: NOTIFYICONDATAW = zeroed();
+    nid.cbSize = size_of_val(&nid) as DWORD;
+    nid.hWnd = hwnd;
+    nid.uID = 273;
+    nid.hIcon = LoadIconW(GetModuleHandleW(null_mut()), MAKEINTRESOURCEW(2));
+    nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_SHOWTIP | NIF_TIP;
+    nid.uCallbackMessage = WM_APP_NOTIFICATION_ICON;
+    *nid.uVersion_mut() = NOTIFYICON_VERSION_4;
+    let tooltip = "I'm a notification icon!".to_wide_null();
+    nid.szTip[..tooltip.len()].copy_from_slice(&tooltip);
+    SetLastError(0);
+    let err = Shell_NotifyIconW(NIM_ADD, &mut nid);
+    if err == 0 {
+        Error::get_last_error().die("Failed to create notification icon");
+    }
+    let err = Shell_NotifyIconW(NIM_SETVERSION, &mut nid);
+    if err == 0 {
+        Error::get_last_error().die("Failed to set version for notification icon");
+    }
+    wndproc::message_loop();
+    let err = Shell_NotifyIconW(NIM_DELETE, &mut nid);
+    if err == 0 {
+        Error::get_last_error().die("Failed to destroy notification icon");
+    }
+    */
 }
 fn main() {
     foo();
@@ -138,6 +131,9 @@ impl Error {
     }
     fn get_last_error() -> Error {
         Error::from_raw(unsafe { GetLastError() })
+    }
+    fn clear() {
+        unsafe { SetLastError(0) }
     }
     fn into_hresult(&self) -> i32 {
         let code = self.0 as i32;

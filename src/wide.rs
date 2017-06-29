@@ -8,7 +8,7 @@ pub trait ToWide {
     fn to_wide(&self) -> Vec<u16>;
     fn to_wide_null(&self) -> Vec<u16>;
 }
-impl<T> ToWide for T where T: AsRef<OsStr> {
+impl<T> ToWide for T where T: AsRef<OsStr> + ?Sized {
     fn to_wide(&self) -> Vec<u16> {
         self.as_ref().encode_wide().collect()
     }
