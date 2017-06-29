@@ -116,9 +116,6 @@ fn foo() {
     }
     */
 }
-fn main() {
-    foo();
-}
 
 #[derive(Clone, Copy, Debug)]
 pub struct Error(u32);
