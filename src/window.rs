@@ -1,4 +1,5 @@
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::mem::forget;
 use std::ptr::null_mut;
 use std::rc::Rc;
@@ -13,7 +14,8 @@ use winapi::um::winuser::{
 
 use Error;
 use class::Class;
-use event::{Event, EventHandler, EventResponse};
+use event::{Event, EventResponse};
+use notifyicon::NotifyIcon;
 use wide::ToWide;
 use wndproc::message_loop;
 // Because we cannot assign state to the window until after it is created, and the window procedure
@@ -22,7 +24,7 @@ use wndproc::message_loop;
 // in a thread local, and when the window procedure is first called it notices the lack of state
 // and takes the user handler from the thread local and assigns the state.
 thread_local!{
-    static WINDOW_HANDLER: Cell<Option<Box<EventHandler>>>
+    static WINDOW_HANDLER: Cell<Option<Box<Fn(Event, &Window) -> Option<EventResponse> + Send>>>
         = Cell::new(None);
 }
 // An HWND can be destroyed from under us at any time, so in order to prevent other threads from
@@ -30,25 +32,31 @@ thread_local!{
 // fine as user32's HWND allocation strategy ensures the same exact HWND won't be reused for a new
 // window any time soon.
 #[derive(Clone)]
-pub struct RemoteWindow {
+pub struct WindowRef {
     hwnd: Weak<HWND>,
 }
-impl RemoteWindow {
-    fn as_raw(&self) -> Result<HWND, Error> {
+impl WindowRef {
+    pub fn as_raw(&self) -> Result<HWND, Error> {
         self.hwnd.upgrade().map(|x| *x).ok_or(Error::from_raw(ERROR_INVALID_WINDOW_HANDLE))
     }
-    unsafe fn post_message(&self, msg: UINT, wparam: WPARAM, lparam: LPARAM) -> Result<(), Error> {
+    pub unsafe fn post_message(
+        &self, msg: UINT, wparam: WPARAM, lparam: LPARAM,
+    ) -> Result<(), Error> {
         if PostMessageW(self.as_raw()?, msg, wparam, lparam) == 0 {
             return Err(Error::get_last_error())
         }
         Ok(())
     }
+    pub fn with_window<T, R>() -> Result<R, Error> where T: FnOnce(Window) -> Option<R> + Send {
+        unimplemented!()
+    }
 }
-unsafe impl Send for RemoteWindow {}
+unsafe impl Send for WindowRef {}
 struct WindowInternal {
     hwnd: Arc<HWND>,
-    handler: Box<EventHandler>,
+    handler: Box<Fn(Event, &Window) -> Option<EventResponse> + Send>,
     class: Cell<Option<Class>>,
+    nicons: RefCell<HashMap<u16, NotifyIcon>>,
 }
 impl Drop for WindowInternal {
     fn drop(&mut self) {
@@ -65,6 +73,7 @@ impl Window {
             hwnd: Arc::new(hwnd),
             handler: handler,
             class: Cell::new(None),
+            nicons: RefCell::new(HashMap::new()),
         });
         let win = Window(internal.clone());
         let rc = Rc::into_raw(internal);
@@ -79,10 +88,17 @@ impl Window {
         }
         Ok(win)
     }
-    pub fn remote(&self) -> RemoteWindow {
-        RemoteWindow {
+    pub(crate) fn add_nicon(&self, ni: NotifyIcon, id: u16) {
+        assert!(!self.0.nicons.borrow().contains_key(&id)); //TODO handling duplicate ids
+        self.0.nicons.borrow_mut().insert(id, ni);
+    }
+    pub fn as_ref(&self) -> WindowRef {
+        WindowRef {
             hwnd: Arc::downgrade(&self.0.hwnd),
         }
+    }
+    pub fn as_raw(&self) -> HWND {
+        *self.0.hwnd
     }
     pub(crate) unsafe fn from_raw(hwnd: HWND) -> Result<Option<Window>, Error> {
         Error::clear();
@@ -102,11 +118,16 @@ impl Window {
         &self, msg: UINT, wparam: WPARAM, lparam: LPARAM,
     ) -> Option<EventResponse> {
         let event = unsafe { Event::from_raw(msg, wparam, lparam) };
-        (self.0.handler)(event)
+        match event {
+            Event::NotifyIcon(id, e) => {
+                self.0.nicons.borrow()[&id].handle_event(e)
+            },
+            _ => (self.0.handler)(event, self),
+        }
     }
 }
 pub struct WindowBuilder {
-    handler: Option<Box<EventHandler>>,
+    handler: Option<Box<Fn(Event, &Window) -> Option<EventResponse> + Send>>,
     class: Option<Class>,
 }
 impl WindowBuilder {
@@ -118,7 +139,7 @@ impl WindowBuilder {
     }
     pub fn handler<T>(
         mut self, handler: T
-    ) -> WindowBuilder where T: Fn(Event) -> Option<EventResponse> + Send + 'static {
+    ) -> WindowBuilder where T: Fn(Event, &Window) -> Option<EventResponse> + Send + 'static {
         self.handler = Some(Box::new(handler));
         self
     }
@@ -126,13 +147,13 @@ impl WindowBuilder {
         self.class = Some(class);
         self
     }
-    pub fn create_child(self, _window: RemoteWindow) -> Result<RemoteWindow, Error> {
+    pub fn create_child(self, _window: WindowRef) -> Result<WindowRef, Error> {
         unimplemented!()
     }
-    pub fn create_message(self) -> Result<RemoteWindow, Error> {
+    pub fn create_message(self) -> Result<WindowRef, Error> {
         let class = self.class.expect("Must specify a class");
-        let handler = self.handler.unwrap_or_else(|| Box::new(|_| None));
-        let pair: Arc<(Mutex<Option<Result<RemoteWindow, Error>>>, Condvar)>
+        let handler = self.handler.unwrap_or_else(|| Box::new(|_, _| None));
+        let pair: Arc<(Mutex<Option<Result<WindowRef, Error>>>, Condvar)>
             = Arc::new((Mutex::new(None), Condvar::new()));
         let rpair = pair.clone();
         spawn(move|| {
@@ -153,7 +174,7 @@ impl WindowBuilder {
             }
             let window = unsafe { Window::from_raw(hwnd).unwrap().unwrap() };
             window.0.class.set(Some(class));
-            let remote = window.remote();
+            let remote = window.as_ref();
             *rpair.0.lock().unwrap() = Some(Ok(remote));
             rpair.1.notify_one();
             message_loop();

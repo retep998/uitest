@@ -10,7 +10,6 @@ use window::Window;
 pub(crate) unsafe extern "system" fn wndproc(
     hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM,
 ) -> LRESULT {
-    println!("wndproc: 0x{:x}", msg);
     let window = Window::from_raw(hwnd).expect("Failed to get window internals")
         .unwrap_or_else(|| Window::initialize(hwnd).expect("Failed to initialize window"));
     if let Some(response) = window.handle_event(msg, wparam, lparam) {

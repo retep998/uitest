@@ -4,6 +4,7 @@ extern crate winapi;
 pub mod brush;
 pub mod class;
 pub mod event;
+pub mod icon;
 mod wndproc;
 pub mod menu;
 pub mod notifyicon;
@@ -75,6 +76,7 @@ fn handler(window: HWND, event: Event) -> Option<LRESULT> {
 }
 */
 fn foo() {
+    /*
     let brush = Brush::solid_rgb(0x44, 0x77, 0xFF).unwrap();
     let icon = unsafe { LoadIconW(GetModuleHandleW(null_mut()), MAKEINTRESOURCEW(2)) };
     if icon.is_null() {
@@ -89,7 +91,6 @@ fn foo() {
     loop {
         sleep(Duration::from_secs(10));
     }
-    /*
     let mut nid: NOTIFYICONDATAW = zeroed();
     nid.cbSize = size_of_val(&nid) as DWORD;
     nid.hWnd = hwnd;

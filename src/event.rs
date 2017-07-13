@@ -1,23 +1,28 @@
 
-use winapi::shared::minwindef::{DWORD, LOWORD, LPARAM, LRESULT, UINT, WPARAM};
+use winapi::shared::minwindef::{DWORD, HIWORD, LOWORD, LPARAM, LRESULT, UINT, WPARAM};
 use winapi::shared::windowsx::{GET_X_LPARAM, GET_Y_LPARAM};
-use winapi::um::winuser::{WM_APP};
+use winapi::um::winuser::{CREATESTRUCTW, MINMAXINFO, WM_APP};
 
-const WM_APP_NOTIFICATION_ICON: u32 = WM_APP + 1;
+pub(crate) const WM_APP_NOTIFICATION_ICON: u32 = WM_APP + 1;
 
 #[derive(Debug)]
 pub enum Event {
+    Create(*const CREATESTRUCTW),
     Destroy,
-    Unknown(UINT, WPARAM, LPARAM),
-    NotifyIcon(NotifyIconEvent),
+    GetMinMaxInfo(*mut MINMAXINFO),
+    #[doc(hidden)] Unknown(UINT, WPARAM, LPARAM),
+    #[doc(hidden)] NotifyIcon(u16, NotifyIconEvent),
 }
 impl Event {
     pub unsafe fn from_raw(msg: UINT, wparam: WPARAM, lparam: LPARAM) -> Event {
         use winapi::um::winuser as wu;
         match msg {
+            wu::WM_CREATE => Event::Create(lparam as *const CREATESTRUCTW),
             wu::WM_DESTROY => Event::Destroy,
+            wu::WM_GETMINMAXINFO => Event::GetMinMaxInfo(lparam as *mut MINMAXINFO),
             WM_APP_NOTIFICATION_ICON => Event::NotifyIcon(
-                NotifyIconEvent::from_raw(wparam, lparam)
+                HIWORD(lparam as DWORD),
+                NotifyIconEvent::from_raw(wparam, lparam),
             ),
             _ => Event::Unknown(msg, wparam, lparam),
         }
@@ -49,4 +54,3 @@ impl EventResponse {
         self.0
     }
 }
-pub type EventHandler = Fn(Event) -> Option<EventResponse> + Send;
