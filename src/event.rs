@@ -7,6 +7,7 @@ pub(crate) const WM_APP_NOTIFICATION_ICON: u32 = WM_APP + 1;
 
 #[derive(Debug)]
 pub enum Event {
+    MenuCommand(u16),
     Create(*const CREATESTRUCTW),
     Destroy,
     GetMinMaxInfo(*mut MINMAXINFO),
@@ -17,6 +18,7 @@ impl Event {
     pub unsafe fn from_raw(msg: UINT, wparam: WPARAM, lparam: LPARAM) -> Event {
         use winapi::um::winuser as wu;
         match msg {
+            wu::WM_COMMAND if HIWORD(wparam as u32) == 0 => Event::MenuCommand(LOWORD(wparam as u32)),
             wu::WM_CREATE => Event::Create(lparam as *const CREATESTRUCTW),
             wu::WM_DESTROY => Event::Destroy,
             wu::WM_GETMINMAXINFO => Event::GetMinMaxInfo(lparam as *mut MINMAXINFO),
@@ -31,17 +33,22 @@ impl Event {
 #[derive(Debug)]
 pub enum NotifyIconEvent {
     ContextMenu(i32, i32),
-    Unknown(WPARAM, LPARAM),
+    MouseMove(i32, i32),
+    Select(i32, i32),
+    Unknown(u32, i32, i32),
 }
 impl NotifyIconEvent {
     unsafe fn from_raw(wparam: WPARAM, lparam: LPARAM) -> NotifyIconEvent {
         use winapi::um::winuser as wu;
+        use winapi::um::shellapi as sa;
         let x = GET_X_LPARAM(wparam as LPARAM);
         let y = GET_Y_LPARAM(wparam as LPARAM);
         let msg = LOWORD(lparam as DWORD) as UINT;
         match msg {
+            sa::NIN_SELECT => NotifyIconEvent::Select(x, y),
             wu::WM_CONTEXTMENU => NotifyIconEvent::ContextMenu(x, y),
-            _ => NotifyIconEvent::Unknown(wparam, lparam),
+            wu::WM_MOUSEMOVE => NotifyIconEvent::MouseMove(x, y),
+            _ => NotifyIconEvent::Unknown(msg, x, y),
         }
     }
 }

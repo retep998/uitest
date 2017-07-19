@@ -11,7 +11,7 @@ pub struct Icon(HICON);
 
 impl Icon {
     pub unsafe fn from_resource(id: u16) -> Result<Icon, Error> {
-        let icon = unsafe { LoadIconW(GetModuleHandleW(null_mut()), MAKEINTRESOURCEW(id)) };
+        let icon = LoadIconW(GetModuleHandleW(null_mut()), MAKEINTRESOURCEW(id));
         if icon.is_null() {
             return Err(Error::get_last_error());
         }

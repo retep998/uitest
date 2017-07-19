@@ -2,22 +2,34 @@
 use std::cell::RefCell;
 use std::mem::{size_of, zeroed};
 use std::rc::Rc;
-use winapi::um::shellapi::{NIF_ICON, NIF_MESSAGE, NIM_ADD, NIM_MODIFY, NIM_SETVERSION, NOTIFYICONDATAW, NOTIFYICON_VERSION_4, Shell_NotifyIconW};
+use winapi::um::shellapi::{
+    NIF_ICON, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY, NIM_SETVERSION,
+    NOTIFYICONDATAW, NOTIFYICON_VERSION_4, Shell_NotifyIconW,
+};
 
 use Error;
 use event::{EventResponse, NotifyIconEvent, WM_APP_NOTIFICATION_ICON};
 use icon::Icon;
+use wide::ToWide;
 use window::Window;
 
 struct NotifyIconInternal {
     nid: RefCell<NOTIFYICONDATAW>,
-    handler: Box<Fn(NotifyIconEvent) -> Option<EventResponse>>,
+    handler: Box<Fn(NotifyIconEvent, &Window) -> Option<EventResponse>>,
+}
+impl Drop for NotifyIconInternal {
+    fn drop(&mut self) {
+        let err = unsafe { Shell_NotifyIconW(NIM_DELETE, &mut *self.nid.borrow_mut()) };
+        if err == 0 {
+            Error::get_last_error().die("Failed to delete notification icon");
+        }
+    }
 }
 #[derive(Clone)]
 pub struct NotifyIcon(Rc<NotifyIconInternal>);
 impl NotifyIcon {
-    pub fn handle_event(&self, e: NotifyIconEvent) -> Option<EventResponse> {
-        (self.0.handler)(e)
+    pub fn handle_event(&self, e: NotifyIconEvent, w: &Window) -> Option<EventResponse> {
+        (self.0.handler)(e, w)
     }
     pub fn id(&self) -> u16 {
         self.0.nid.borrow().uID as u16
@@ -40,11 +52,21 @@ impl NotifyIcon {
         }
         Ok(())
     }
+    pub fn set_tooltip(&self, msg: &str) -> Result<(), Error> {
+        let msg = msg.to_wide();
+        {
+            let mut nid = self.0.nid.borrow_mut();
+            nid.szTip = [0; 128];
+            nid.szTip[..msg.len()].copy_from_slice(&msg);
+            nid.uFlags |= NIF_TIP | NIF_SHOWTIP;
+        }
+        self.modify()
+    }
 }
 pub struct NotifyIconBuilder {
     icon: Option<Icon>,
     id: Option<u16>,
-    handler: Option<Box<Fn(NotifyIconEvent) -> Option<EventResponse>>>,
+    handler: Option<Box<Fn(NotifyIconEvent, &Window) -> Option<EventResponse>>>,
 }
 impl NotifyIconBuilder {
     pub fn new() -> NotifyIconBuilder {
@@ -65,7 +87,7 @@ impl NotifyIconBuilder {
     }
     pub fn handler<T>(
         mut self, handler: T
-    ) -> NotifyIconBuilder where T: Fn(NotifyIconEvent) -> Option<EventResponse> + 'static {
+    ) -> NotifyIconBuilder where T: Fn(NotifyIconEvent, &Window) -> Option<EventResponse> + 'static {
         self.handler = Some(Box::new(handler));
         self
     }
@@ -88,7 +110,7 @@ impl NotifyIconBuilder {
             }
             let ni = NotifyIcon(Rc::new(NotifyIconInternal {
                 nid: RefCell::new(nid),
-                handler: self.handler.unwrap_or_else(|| Box::new(|_| None)),
+                handler: self.handler.unwrap_or_else(|| Box::new(|_, _| None)),
             }));
             ni.set_version()?;
             ni.enable_messages()?;

@@ -2,11 +2,12 @@
 use std::mem::forget;
 use std::ops::{Deref, DerefMut};
 use std::ptr::{null, null_mut};
-use winapi::shared::windef::{HMENU, HWND};
+use winapi::shared::windef::{HMENU};
 use winapi::um::winuser::*;
 
 use Error;
 use wide::ToWide;
+use window::Window;
 
 pub enum MenuStatus {
     Enabled,
@@ -90,12 +91,15 @@ impl PopupMenu {
         }
         Ok(PopupMenu(unsafe { Menu::from_raw(menu) }))
     }
-    pub fn display(&self, hwnd: HWND, x: i32, y: i32) -> Result<(), Error> {
+    pub fn display<T>(
+        &self, window: &Window, x: i32, y: i32, func: T,
+    ) -> Result<(), Error> where T: FnMut(u16, &Window) + 'static {
         unsafe {
-            if SetForegroundWindow(hwnd) == 0 {
+            if SetForegroundWindow(window.as_raw()) == 0 {
                 return Err(Error::get_last_error());
             }
-            if TrackPopupMenuEx(self.handle, 0, x, y, hwnd, null_mut()) == 0 {
+            window.set_menu_handler(Box::new(func));
+            if TrackPopupMenuEx(self.handle, 0, x, y, window.as_raw(), null_mut()) == 0 {
                 return Err(Error::get_last_error());
             }
             Ok(())

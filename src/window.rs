@@ -9,7 +9,8 @@ use winapi::shared::minwindef::{LPARAM, UINT, WPARAM};
 use winapi::shared::windef::{HWND};
 use winapi::shared::winerror::ERROR_INVALID_WINDOW_HANDLE;
 use winapi::um::winuser::{
-    CW_USEDEFAULT, CreateWindowExW, GetWindowLongPtrW, HWND_MESSAGE, PostMessageW, SetWindowLongPtrW,
+    CW_USEDEFAULT, CreateWindowExW, GetWindowLongPtrW, HWND_MESSAGE, PostMessageW, PostQuitMessage,
+    SetWindowLongPtrW, WM_CLOSE,
 };
 
 use Error;
@@ -50,6 +51,12 @@ impl WindowRef {
     pub fn with_window<T, R>() -> Result<R, Error> where T: FnOnce(Window) -> Option<R> + Send {
         unimplemented!()
     }
+    pub fn close(&self) -> Result<(), Error> {
+        unsafe { self.post_message(WM_CLOSE, 0, 0) }
+    }
+    pub fn is_open(&self) -> bool {
+        self.hwnd.upgrade().is_some()
+    }
 }
 unsafe impl Send for WindowRef {}
 struct WindowInternal {
@@ -57,6 +64,7 @@ struct WindowInternal {
     handler: Box<Fn(Event, &Window) -> Option<EventResponse> + Send>,
     class: Cell<Option<Class>>,
     nicons: RefCell<HashMap<u16, NotifyIcon>>,
+    menu_handler: Cell<Option<Box<FnMut(u16, &Window)>>>,
 }
 impl Drop for WindowInternal {
     fn drop(&mut self) {
@@ -74,6 +82,7 @@ impl Window {
             handler: handler,
             class: Cell::new(None),
             nicons: RefCell::new(HashMap::new()),
+            menu_handler: Cell::new(None),
         });
         let win = Window(internal.clone());
         let rc = Rc::into_raw(internal);
@@ -114,13 +123,33 @@ impl Window {
         forget(rc.clone());
         Ok(Some(Window(rc)))
     }
+    unsafe fn destroy(&self) {
+        let hwnd = self.as_raw();
+        let raw = GetWindowLongPtrW(hwnd, 0) as *const WindowInternal;
+        assert!(!raw.is_null());
+        Rc::from_raw(raw);
+        //if is the root message window of the thread {
+            PostQuitMessage(0);
+        //}
+    }
+    pub(crate) fn set_menu_handler(&self, func: Box<FnMut(u16, &Window)>) {
+        let _old = self.0.menu_handler.replace(Some(func));
+    }
     pub(crate) fn handle_event(
         &self, msg: UINT, wparam: WPARAM, lparam: LPARAM,
     ) -> Option<EventResponse> {
         let event = unsafe { Event::from_raw(msg, wparam, lparam) };
         match event {
+            Event::MenuCommand(id) => {
+                (self.0.menu_handler.take().expect("Received menu command without menu active!?"))(id, self);
+                None
+            },
+            Event::Destroy => unsafe {
+                self.destroy();
+                None
+            },
             Event::NotifyIcon(id, e) => {
-                self.0.nicons.borrow()[&id].handle_event(e)
+                self.0.nicons.borrow()[&id].handle_event(e, self)
             },
             _ => (self.0.handler)(event, self),
         }
