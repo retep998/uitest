@@ -4,6 +4,8 @@ version = "0.1.0"
 authors = ["Peter Atashian <retep998@gmail.com>"]
 
 [dependencies.winapi]
-git = "https://github.com/retep998/winapi-rs"
-branch = "dev"
-features = ["errhandlingapi", "libloaderapi", "minwindef", "shellapi", "windef", "windowsx", "winerror", "wingdi", "winnt", "winuser"]
+version = "0.3"
+features = [
+    "errhandlingapi", "libloaderapi", "minwindef", "shellapi", "windef", "windowsx", "winerror",
+    "wingdi", "winnt", "winuser"
+]

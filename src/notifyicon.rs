@@ -102,7 +102,7 @@ impl NotifyIconBuilder {
                 nid.uFlags |= NIF_ICON;
                 nid.hIcon = icon.into_raw();
             }
-            *nid.uVersion_mut() = NOTIFYICON_VERSION_4;
+            *nid.u.uVersion_mut() = NOTIFYICON_VERSION_4;
             Error::clear();
             let err = Shell_NotifyIconW(NIM_ADD, &mut nid);
             if err == 0 {
